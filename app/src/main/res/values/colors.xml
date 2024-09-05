@@ -2,4 +2,6 @@
 <resources>
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
+    <color name="scaling_value_bg">#80000000</color>
+    <color name="scale_color">#6D7278</color>
 </resources>
