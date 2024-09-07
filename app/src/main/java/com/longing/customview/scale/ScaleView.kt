@@ -26,22 +26,28 @@ class ScaleView @JvmOverloads constructor(
 
     private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
 
-    //倍数背景半径
-    private val ratioBgRadius = 16.dp
+    //刻度值圆圆背景半径
+    private val valueBgRadius = 16.dp
+    //刻度值圆环厚度
+    private val outlineWith = 1.dp
+    //刻度值间距
+    private val valueSpacing = 54.dp
+    //刻度值背景色
+    private val valueBackground = ContextCompat.getColor(context, R.color.scaling_value_bg)
+    //刻度值集合
+    private val scaleValues = ScaleValue.entries.toTypedArray()
+    //刻度值坐标y点
+    private val scaleValuesCenterY = FloatArray(scaleValues.size)
+    //当前刻度值
+    var selectedValue = ScaleValue.Low
+        set(value) {
+            if (value.name != field.name || value.value != field.value) {
+                field = value
+                invalidate()
+            }
+        }
 
-    //倍数间距
-    private val ratiosSpacing = 54.dp
-
-    //倍数背景色
-    private val ratioBackgroundColor = ContextCompat.getColor(context, R.color.scaling_value_bg)
-
-    //当前选中的倍数
-    private var selectedRatioPosition = 0
-
-    //选中倍数的圆环厚度
-    private val ratioOutlineWith = 1.dp
-
-    //倍数和刻度的间隔
+    //刻度值和刻度的间隔
     private val columnSpacing = 18.dp
 
     //是否展示刻度
@@ -50,7 +56,6 @@ class ScaleView @JvmOverloads constructor(
     //刻度颜色
     private val scaleColorSecondary = ContextCompat.getColor(context, R.color.scale_color)
     private val scaleColorMain = Color.WHITE
-
     //刻度长度
     private val scaleLengthLong = 24.dp
     private val scaleLengthShort = 15.dp
@@ -60,8 +65,12 @@ class ScaleView @JvmOverloads constructor(
     private val cursorLength = scaleLengthLong
     private val scaleThickness = 2.dp
     private val cursorMoveRange: Pair<Float, Float> by lazy(LazyThreadSafetyMode.NONE) {
-        ratioSpecY.first() to ratioSpecY.last()
+        scaleValuesCenterY.first() to scaleValuesCenterY.last()
     }
+    private var cursorMoveOffset = 0
+    private var lastCursorMoveOffset = 0
+
+    private var lastPointY = 0f
 
     private val textBounds = Rect()
     private val textPaint = Paint().apply {
@@ -70,17 +79,11 @@ class ScaleView @JvmOverloads constructor(
         color = Color.WHITE
     }
 
-
     private val paint = Paint().apply {
         isAntiAlias = true
         style = Paint.Style.FILL
         strokeWidth = scaleThickness
     }
-
-    private val ratioSpec = listOf(10, 2, 1)
-
-    //中点的坐标
-    private val ratioSpecY = FloatArray(ratioSpec.size)
 
     private val resetRunnable = Runnable {
         hasScale = false
@@ -93,10 +96,10 @@ class ScaleView @JvmOverloads constructor(
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         super.onMeasure(widthMeasureSpec, heightMeasureSpec)
         val paddingVertical = paddingTop + paddingBottom
-        val height = 2 * (ratioBgRadius + ratiosSpacing + ratioOutlineWith) + paddingVertical
+        val height = 2 * (valueBgRadius + valueSpacing + outlineWith) + paddingVertical
 
         val paddingHorizontal = paddingStart + paddingEnd
-        var width = 2 * (ratioBgRadius + ratioOutlineWith) + paddingHorizontal
+        var width = 2 * (valueBgRadius + outlineWith) + paddingHorizontal
 
         if (hasScale) {
             width += scaleLengthLong + columnSpacing
@@ -104,10 +107,13 @@ class ScaleView @JvmOverloads constructor(
         Log.d(TAG, "onMeasure:$height,$width")
 
         //设置倍率坐标中心点
-        var cy = ratioBgRadius + paddingTop + ratioOutlineWith
-        for (i in ratioSpec.indices) {
-            ratioSpecY[i] = cy
-            cy += ratiosSpacing
+        if (scaleValuesCenterY.all { it == 0f }) {
+            val cy = valueBgRadius + paddingTop + outlineWith
+            for (i in scaleValues.indices) {
+                scaleValuesCenterY[i] = cy + valueSpacing * i
+            }
+            //默认指针在最低处
+            lastCursorMoveOffset = scaleValuesCenterY.last().roundToInt()
         }
 
         setMeasuredDimension(width.roundToInt(), height.roundToInt())
@@ -115,32 +121,31 @@ class ScaleView @JvmOverloads constructor(
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-        val start = ratioBgRadius + paddingStart + ratioOutlineWith
-        ratioSpec.onEachIndexed { index, scale ->
-            val cy = ratioSpecY[index]
+        val start = valueBgRadius + paddingStart + outlineWith
+        scaleValues.onEachIndexed { index, scale ->
+            val cy = scaleValuesCenterY[index]
             //画背景圆
-            paint.color = ratioBackgroundColor
-            canvas.drawCircle(start, cy, ratioBgRadius, paint)
+            paint.color = valueBackground
+            canvas.drawCircle(start, cy, valueBgRadius, paint)
             //画缩放倍率
-            val text = "${scale}x"
+            val text = "${scale.value}x"
             textPaint.getTextBounds(text, 0, text.length, textBounds)
-            val tx = ratioBgRadius - textBounds.width() / 2
+            val tx = valueBgRadius - textBounds.width() / 2
             val ty = cy + textBounds.height() / 2
             canvas.drawText(text, tx, ty, textPaint)
             //选中圆环
-            if (index == selectedRatioPosition) {
+            if (scaleValues[index] == selectedValue) {
                 val paintStyle = textPaint.style
                 textPaint.style = Paint.Style.STROKE
-                textPaint.strokeWidth = ratioOutlineWith
-                canvas.drawCircle(start, cy, ratioBgRadius + ratioOutlineWith, textPaint)
+                textPaint.strokeWidth = outlineWith
+                canvas.drawCircle(start, cy, valueBgRadius + outlineWith, textPaint)
                 textPaint.style = paintStyle
             }
-
         }
 
         if (hasScale) {
-            val spacing = (ratioSpecY.last() - ratioSpecY.first()) / (SCALE_COUNTS - 1)
-            var startY = ratioSpecY.first()
+            val spacing = (scaleValuesCenterY.last() - scaleValuesCenterY.first()) / (SCALE_COUNTS - 1)
+            var startY = scaleValuesCenterY.first()
             val with = measuredWidth.toFloat()
             repeat(SCALE_COUNTS) {
                 val scaleLength = if (it % 5 == 0) {
@@ -155,14 +160,10 @@ class ScaleView @JvmOverloads constructor(
             }
             paint.color = cursorColor
             canvas.drawLine(
-                with - cursorLength, moveOffset.toFloat(), with, moveOffset.toFloat(), paint
+                with - cursorLength, cursorMoveOffset.toFloat(), with, cursorMoveOffset.toFloat(), paint
             )
         }
     }
-
-    private var moveOffset = 0
-    private var lastMoveOffset = 0
-    private var lastPointY = 0f
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
         val pointY = event.y
@@ -182,22 +183,25 @@ class ScaleView @JvmOverloads constructor(
                     requestLayout()
                 } else if (hasScale) {
                     val offsetY = pointY - lastPointY
-                    moveOffset = offsetY.toInt() + lastMoveOffset
+                    cursorMoveOffset = offsetY.toInt() + lastCursorMoveOffset
 
-                    if (moveOffset < cursorMoveRange.first) {
-                        moveOffset = cursorMoveRange.first.toInt()
-                    } else if (moveOffset > cursorMoveRange.second) {
-                        moveOffset = cursorMoveRange.second.toInt()
+                    if (cursorMoveOffset < cursorMoveRange.first) {
+                        cursorMoveOffset = cursorMoveRange.first.toInt()
+                    } else if (cursorMoveOffset > cursorMoveRange.second) {
+                        cursorMoveOffset = cursorMoveRange.second.toInt()
                     }
                     invalidate()
-                    cursorMoveListener?.onCursorMove(
-                        (moveOffset - cursorMoveRange.first) / (cursorMoveRange.second - cursorMoveRange.first)
-                    )
+
+                    cursorMoveListener?.let { listener ->
+                        val progress = (cursorMoveOffset - cursorMoveRange.first) /
+                                (cursorMoveRange.second - cursorMoveRange.first)
+                        listener.onCursorMove(1 - progress)
+                    }
                 }
             }
 
             MotionEvent.ACTION_CANCEL, MotionEvent.ACTION_UP -> {
-                lastMoveOffset = moveOffset
+                lastCursorMoveOffset = cursorMoveOffset
                 if (hasScale) {
                     postDelayed(resetRunnable, 2000)
                 }
@@ -206,5 +210,4 @@ class ScaleView @JvmOverloads constructor(
         }
         return true
     }
-
 }
