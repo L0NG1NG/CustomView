@@ -60,7 +60,7 @@ class ScaleView @JvmOverloads constructor(
     private val cursorLength = scaleLengthLong
     private val scaleThickness = 2.dp
     private val cursorMoveRange: Pair<Float, Float> by lazy(LazyThreadSafetyMode.NONE) {
-        (scaleThickness / 2) to (measuredHeight - scaleThickness / 2f)
+        ratioSpecY.first() to ratioSpecY.last()
     }
 
     private val textBounds = Rect()
@@ -139,8 +139,8 @@ class ScaleView @JvmOverloads constructor(
         }
 
         if (hasScale) {
-            val spacing = (ratioSpecY[2]-ratioSpecY[0]) / (SCALE_COUNTS - 1)
-            var startY = ratioSpecY[0]
+            val spacing = (ratioSpecY.last() - ratioSpecY.first()) / (SCALE_COUNTS - 1)
+            var startY = ratioSpecY.first()
             val with = measuredWidth.toFloat()
             repeat(SCALE_COUNTS) {
                 val scaleLength = if (it % 5 == 0) {
@@ -151,7 +151,7 @@ class ScaleView @JvmOverloads constructor(
                     scaleLengthShort
                 }
                 canvas.drawLine(with - scaleLength, startY, with, startY, paint)
-                startY += spacing + scaleThickness
+                startY += spacing
             }
             paint.color = cursorColor
             canvas.drawLine(
@@ -186,12 +186,13 @@ class ScaleView @JvmOverloads constructor(
 
                     if (moveOffset < cursorMoveRange.first) {
                         moveOffset = cursorMoveRange.first.toInt()
-                    } else if (moveOffset > cursorMoveRange.second){
+                    } else if (moveOffset > cursorMoveRange.second) {
                         moveOffset = cursorMoveRange.second.toInt()
                     }
                     invalidate()
                     cursorMoveListener?.onCursorMove(
-                        1-(moveOffset-cursorMoveRange.first)/cursorMoveRange.second)
+                        (moveOffset - cursorMoveRange.first) / (cursorMoveRange.second - cursorMoveRange.first)
+                    )
                 }
             }
 
