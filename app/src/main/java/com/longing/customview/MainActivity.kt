@@ -1,10 +1,13 @@
 package com.longing.customview
 
 import android.os.Bundle
+import android.widget.TextView
 import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import com.longing.customview.scale.CursorMoveListener
+import com.longing.customview.scale.ScaleView
 
 class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -15,6 +18,19 @@ class MainActivity : AppCompatActivity() {
             val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
             v.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom)
             insets
+        }
+
+        val textView = findViewById<TextView>(R.id.scale_tv)
+        val scaleView=findViewById<ScaleView>(R.id.scale_view)
+        scaleView.cursorMoveListener=object :CursorMoveListener{
+            override fun onCursorMove(progress: Float) {
+              textView.text="${progress}%"
+            }
+
+            override fun onCursorMoveEnd(progress: Float) {
+
+            }
+
         }
     }
 }
