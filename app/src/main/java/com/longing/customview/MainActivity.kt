@@ -24,19 +24,12 @@ class MainActivity : AppCompatActivity() {
         val textView = findViewById<TextView>(R.id.scale_tv)
         val scaleView = findViewById<ScaleView>(R.id.scale_view)
         scaleView.cursorMoveListener = object : CursorMoveListener {
-            override fun onCursorMove(progress: Float) {
-                textView.text = "${progress}%"
-                if (0.48f < progress && progress < 0.52f) {
-                    scaleView.selectedValue = ScaleValue.Middle
-                } else if (progress < 0.02f) {
-                    scaleView.selectedValue = ScaleValue.Low
-                } else if (progress > 0.98f) {
-                    scaleView.selectedValue = ScaleValue.High
-                }
+            override fun onCursorMove(progress: Float,scale:Float) {
+                textView.text = "$scale"
 
             }
 
-            override fun onCursorMoveEnd(progress: Float) {
+            override fun onCursorMoveEnd(progress: Float,scale:Float) {
 
             }
 

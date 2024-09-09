@@ -13,6 +13,8 @@ import android.view.ViewConfiguration
 import androidx.core.content.ContextCompat
 import com.longing.customview.R
 import com.longing.customview.dp
+import java.math.RoundingMode
+import java.text.NumberFormat
 import kotlin.math.absoluteValue
 import kotlin.math.roundToInt
 
@@ -28,24 +30,26 @@ class ScaleView @JvmOverloads constructor(
 
     //刻度值圆圆背景半径
     private val valueBgRadius = 16.dp
+
     //刻度值圆环厚度
     private val outlineWith = 1.dp
+
     //刻度值间距
     private val valueSpacing = 54.dp
+
     //刻度值背景色
     private val valueBackground = ContextCompat.getColor(context, R.color.scaling_value_bg)
+
     //刻度值集合
-    private val scaleValues = ScaleValue.entries.toTypedArray()
+    private val scaleValues = arrayOf(ScaleValue(10f, false), ScaleValue(2f, false), ScaleValue(1f, false))
+    private val dynamicScaleValues =
+        arrayOf(ScaleValue(10f, false), ScaleValue(2f, false), ScaleValue(1f, false))
+
     //刻度值坐标y点
     private val scaleValuesCenterY = FloatArray(scaleValues.size)
-    //当前刻度值
-    var selectedValue = ScaleValue.Low
-        set(value) {
-            if (value.name != field.name || value.value != field.value) {
-                field = value
-                invalidate()
-            }
-        }
+
+    //当前刻度
+    var selectedValue = 1f
 
     //刻度值和刻度的间隔
     private val columnSpacing = 18.dp
@@ -56,6 +60,7 @@ class ScaleView @JvmOverloads constructor(
     //刻度颜色
     private val scaleColorSecondary = ContextCompat.getColor(context, R.color.scale_color)
     private val scaleColorMain = Color.WHITE
+
     //刻度长度
     private val scaleLengthLong = 24.dp
     private val scaleLengthShort = 15.dp
@@ -90,6 +95,12 @@ class ScaleView @JvmOverloads constructor(
         requestLayout()
     }
 
+    private val nf = NumberFormat.getNumberInstance().apply {
+        roundingMode = RoundingMode.HALF_UP
+        isGroupingUsed = false
+        maximumFractionDigits = 1
+    }
+
     //外部监听事件
     var cursorMoveListener: CursorMoveListener? = null
 
@@ -121,29 +132,8 @@ class ScaleView @JvmOverloads constructor(
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-        val start = valueBgRadius + paddingStart + outlineWith
-        scaleValues.onEachIndexed { index, scale ->
-            val cy = scaleValuesCenterY[index]
-            //画背景圆
-            paint.color = valueBackground
-            canvas.drawCircle(start, cy, valueBgRadius, paint)
-            //画缩放倍率
-            val text = "${scale.value}x"
-            textPaint.getTextBounds(text, 0, text.length, textBounds)
-            val tx = valueBgRadius - textBounds.width() / 2
-            val ty = cy + textBounds.height() / 2
-            canvas.drawText(text, tx, ty, textPaint)
-            //选中圆环
-            if (scaleValues[index] == selectedValue) {
-                val paintStyle = textPaint.style
-                textPaint.style = Paint.Style.STROKE
-                textPaint.strokeWidth = outlineWith
-                canvas.drawCircle(start, cy, valueBgRadius + outlineWith, textPaint)
-                textPaint.style = paintStyle
-            }
-        }
-
         if (hasScale) {
+            drawScaleValue(canvas, scaleValues)
             val spacing = (scaleValuesCenterY.last() - scaleValuesCenterY.first()) / (SCALE_COUNTS - 1)
             var startY = scaleValuesCenterY.first()
             val with = measuredWidth.toFloat()
@@ -162,6 +152,33 @@ class ScaleView @JvmOverloads constructor(
             canvas.drawLine(
                 with - cursorLength, cursorMoveOffset.toFloat(), with, cursorMoveOffset.toFloat(), paint
             )
+        } else {
+            drawScaleValue(canvas, dynamicScaleValues)
+        }
+    }
+
+    private fun drawScaleValue(canvas: Canvas, scaleValues: Array<ScaleValue>) {
+        val start = valueBgRadius + paddingStart + outlineWith
+        scaleValues.onEachIndexed { index, scale ->
+            val cy = scaleValuesCenterY[index]
+            //画背景圆
+            paint.color = valueBackground
+            canvas.drawCircle(start, cy, valueBgRadius, paint)
+            //画缩放倍率
+
+            val text = "${nf.format(scale.value)}x"
+            textPaint.getTextBounds(text, 0, text.length, textBounds)
+            val tx = valueBgRadius - textBounds.width() / 2
+            val ty = cy + textBounds.height() / 2
+            canvas.drawText(text, tx, ty, textPaint)
+            //选中圆环
+            if (scaleValues[index].isShot) {
+                val paintStyle = textPaint.style
+                textPaint.style = Paint.Style.STROKE
+                textPaint.strokeWidth = outlineWith
+                canvas.drawCircle(start, cy, valueBgRadius + outlineWith, textPaint)
+                textPaint.style = paintStyle
+            }
         }
     }
 
@@ -190,13 +207,11 @@ class ScaleView @JvmOverloads constructor(
                     } else if (cursorMoveOffset > cursorMoveRange.second) {
                         cursorMoveOffset = cursorMoveRange.second.toInt()
                     }
+                    val progress = (cursorMoveOffset - cursorMoveRange.first) /
+                            (cursorMoveRange.second - cursorMoveRange.first)
+                    onProgressChange(progress)
+                    cursorMoveListener?.onCursorMove(progress, selectedValue)
                     invalidate()
-
-                    cursorMoveListener?.let { listener ->
-                        val progress = (cursorMoveOffset - cursorMoveRange.first) /
-                                (cursorMoveRange.second - cursorMoveRange.first)
-                        listener.onCursorMove(1 - progress)
-                    }
                 }
             }
 
@@ -205,9 +220,43 @@ class ScaleView @JvmOverloads constructor(
                 if (hasScale) {
                     postDelayed(resetRunnable, 2000)
                 }
-
             }
         }
         return true
+    }
+
+    private fun onProgressChange(progress: Float) {
+        //更新选中的刻度数值
+        for (i in scaleValues.indices) {
+            scaleValues[i].isShot = i * 0.5f == progress
+        }
+
+        //计算当前的倍率
+        val scale = if (progress >= 0.5) {
+            scaleValues[2].value + (scaleValues[1].value - scaleValues[2].value) * (1 - (progress - 0.5) / 0.5)
+        } else {
+            scaleValues[1].value + (scaleValues[0].value - scaleValues[1].value) * (1 - progress / 0.5)
+        }
+        Log.i(TAG, "onProgressChange: -->$scale")
+        selectedValue = nf.format(scale).toFloat()
+
+        val scaleLevel = if (selectedValue < scaleValues[1].value) {
+            2
+        } else if (progress >= scaleValues[0].value * 0.6) {
+            0
+        } else {
+            1
+        }
+        for (index in scaleValues.indices) {
+            dynamicScaleValues[index].apply {
+                if (scaleLevel == index) {
+                    value = selectedValue
+                    isShot = true
+                } else {
+                    value = scaleValues[index].value
+                    isShot = false
+                }
+            }
+        }
     }
 }

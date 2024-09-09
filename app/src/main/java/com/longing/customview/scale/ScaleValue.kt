@@ -1,5 +1,3 @@
 package com.longing.customview.scale
 
-enum class ScaleValue(var value: Float) {
-    High(10f), Middle(2f), Low(1f),
-}
+data class ScaleValue(var value: Float,var isShot:Boolean=false)
