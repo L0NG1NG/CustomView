@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.PointF
 import android.graphics.Rect
 import android.os.SystemClock
 import android.util.AttributeSet
@@ -18,7 +19,9 @@ import kotlin.math.abs
 import java.math.RoundingMode
 import java.text.NumberFormat
 import kotlin.math.absoluteValue
+import kotlin.math.pow
 import kotlin.math.roundToInt
+import kotlin.math.sqrt
 
 private const val TAG = "ScaleView"
 private const val SCALE_COUNTS = 11
@@ -30,6 +33,7 @@ class ScaleView @JvmOverloads constructor(
 
     private var pressDownTime = 0L
     private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
+    private var consumeClick = false
 
     //刻度值圆圆背景半径
     private val valueBgRadius = 16.dp
@@ -53,6 +57,7 @@ class ScaleView @JvmOverloads constructor(
 
     //当前刻度
     var selectedValue = 1f
+
 
     //刻度值和刻度的间隔
     private val columnSpacing = 18.dp
@@ -78,7 +83,7 @@ class ScaleView @JvmOverloads constructor(
     private var cursorOffset = 0f
     private var lastCursorOffset = 0f
 
-    private var lastPointY = 0f
+    private var lastPoint = PointF()
 
     private val textBounds = Rect()
     private val textPaint = Paint().apply {
@@ -168,7 +173,6 @@ class ScaleView @JvmOverloads constructor(
             paint.color = valueBackground
             canvas.drawCircle(start, cy, valueBgRadius, paint)
             //画缩放倍率
-
             val text = "${nf.format(scale.value)}x"
             textPaint.getTextBounds(text, 0, text.length, textBounds)
             val tx = valueBgRadius - textBounds.width() / 2
@@ -186,10 +190,10 @@ class ScaleView @JvmOverloads constructor(
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        val pointY = event.y
+        val point = PointF(event.x, event.y)
         when (event.action) {
             MotionEvent.ACTION_DOWN -> {
-                lastPointY = pointY
+                lastPoint = point
                 if (hasScale) {
                     removeCallbacks(resetRunnable)
                 }
@@ -197,13 +201,12 @@ class ScaleView @JvmOverloads constructor(
             }
 
             MotionEvent.ACTION_MOVE -> {
-                val offset = pointY - lastPointY
-                if (!hasScale && offset.absoluteValue >= touchSlop) {
+                val offsetY = point.y - lastPoint.y
+                if (!hasScale && offsetY.absoluteValue >= touchSlop) {
                     hasScale = true
-                    lastPointY = pointY
+                    lastPoint = point
                     requestLayout()
                 } else if (hasScale) {
-                    val offsetY = pointY - lastPointY
                     updateCursorOffset(offsetY + lastCursorOffset)
                     invalidate()
                 }
@@ -211,25 +214,26 @@ class ScaleView @JvmOverloads constructor(
 
             MotionEvent.ACTION_CANCEL, MotionEvent.ACTION_UP -> {
                 lastCursorOffset = cursorOffset
+                consumeClick = false
                 if (hasScale) {
                     postDelayed(resetRunnable, 2000)
                 }
                 if (event.action == MotionEvent.ACTION_UP) {
-                    if (abs(pointY - lastPointY) < touchSlop
-                        && SystemClock.elapsedRealtime() - pressDownTime < 500
-
-                    ) {
-                        //点击了
+                    //判断进入点击事件
+                    val moveLength = sqrt((point.y - lastPoint.y).pow(2) + (point.x - lastPoint.x).pow(2))
+                    if (moveLength < touchSlop && SystemClock.elapsedRealtime() - pressDownTime < 500) {
                         for (index in scaleValuesCenterY.indices) {
                             val cy = scaleValuesCenterY[index]
-                            if (abs(pointY - cy) <= valueBgRadius) {
+                            val start = valueBgRadius + paddingStart + outlineWith
+                            if (abs(point.y - cy) <= valueBgRadius && abs(point.x - start) <= valueBgRadius) {
                                 //点击了刻度值
+                                consumeClick = true
                                 if (dynamicScaleValues[index].isShot) {
                                     if (!hasScale) {
                                         hasScale = true
                                         requestLayout()
                                         postDelayed(resetRunnable, 2000)
-                                        break
+                                        return true
                                     }
                                 } else {
                                     lastCursorOffset = cy
@@ -239,6 +243,22 @@ class ScaleView @JvmOverloads constructor(
                                 break
                             }
                         }
+                        if (hasScale && !consumeClick) {
+                            //判断是否点击到刻度区域上
+                            val maxX = measuredWidth - paddingEnd
+                            val minX = maxX - scaleLengthLong
+                            consumeClick =
+                                point.x >= minX && point.x <= maxX && lastPoint.x >= minX && lastPoint.x <= maxX
+                            if (consumeClick) {
+                                lastCursorOffset = point.y
+                                updateCursorOffset(lastCursorOffset)
+                                invalidate()
+                            } else {
+                                performClick()
+                            }
+                        } else {
+                            performClick()
+                        }
                     }
                 }
             }
@@ -246,27 +266,26 @@ class ScaleView @JvmOverloads constructor(
         return true
     }
 
-    private fun updateCursorOffset(offset: Float) {
-        cursorOffset = offset
+    override fun performClick(): Boolean {
+        return consumeClick || super.performClick()
+    }
 
-        if (cursorOffset < cursorMoveRange.first) {
-            cursorOffset = cursorMoveRange.first
-        } else if (cursorOffset > cursorMoveRange.second) {
-            cursorOffset = cursorMoveRange.second
+    private fun updateCursorOffset(offset: Float) {
+        cursorOffset = if (offset < cursorMoveRange.first) {
+            cursorMoveRange.first
+        } else if (offset > cursorMoveRange.second) {
+            cursorMoveRange.second
+        } else {
+            offset
         }
 
-        var progress = (cursorOffset - cursorMoveRange.first) /
+        val progress = (cursorOffset - cursorMoveRange.first) /
                 (cursorMoveRange.second - cursorMoveRange.first)
-        //修正下保留一位小数,使得判断更容易选中
-        progress = nf.format(progress).toFloat()
+
         onProgressChange(progress)
     }
 
     private fun onProgressChange(progress: Float) {
-        //更新选中的刻度数值
-        for (i in scaleValues.indices) {
-            scaleValues[i].isShot = i * 0.5f == progress
-        }
         //计算当前的倍率
         val scale = if (progress >= 0.5) {
             scaleValues[2].value + (scaleValues[1].value - scaleValues[2].value) * (1 - (progress - 0.5) / 0.5)
@@ -301,8 +320,13 @@ class ScaleView @JvmOverloads constructor(
                 }
             }
         }
-
+        //修正下保留一位小数,使得判断更容易选中
+        val fmProgress = nf.format(progress).toFloat()
+        //更新选中的刻度数值
+        for (i in scaleValues.indices) {
+            scaleValues[i].isShot = i * 0.5f == fmProgress
+        }
         //通知到外部
-        cursorMoveListener?.onCursorMove(progress, selectedValue)
+        cursorMoveListener?.onCursorMove(fmProgress, selectedValue)
     }
 }
