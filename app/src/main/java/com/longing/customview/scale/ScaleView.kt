@@ -57,7 +57,7 @@ class ScaleView @JvmOverloads constructor(
 
     //当前刻度
     var selectedValue = 1f
-
+        private set
 
     //刻度值和刻度的间隔
     private val columnSpacing = 18.dp
@@ -82,6 +82,8 @@ class ScaleView @JvmOverloads constructor(
     }
     private var cursorOffset = 0f
     private var lastCursorOffset = 0f
+    private val cursorProgress get() = (cursorOffset - cursorMoveRange.first) /
+            (cursorMoveRange.second - cursorMoveRange.first)
 
     private var lastPoint = PointF()
 
@@ -267,7 +269,8 @@ class ScaleView @JvmOverloads constructor(
     }
 
     override fun performClick(): Boolean {
-        return consumeClick || super.performClick()
+        if (consumeClick) return true
+        return super.performClick()
     }
 
     private fun updateCursorOffset(offset: Float) {
@@ -278,15 +281,24 @@ class ScaleView @JvmOverloads constructor(
         } else {
             offset
         }
-
-        val progress = (cursorOffset - cursorMoveRange.first) /
-                (cursorMoveRange.second - cursorMoveRange.first)
-
-        onProgressChange(progress)
+        onProgressChange()
     }
 
-    private fun onProgressChange(progress: Float) {
+    fun setScaleValue(scale: Float) {
+        //将缩放数值转换为游标移动距离
+        val progress = if (scale > scaleValues[1].value) {
+            0.5f - (scale.coerceAtMost(scaleValues[0].value) - scaleValues[1].value) / (scaleValues[0].value - scaleValues[1].value) * 0.5f
+        } else {
+            1 - (scale.coerceAtLeast(scaleValues[2].value) - scaleValues[2].value) / (scaleValues[1].value - scaleValues[2].value) * 0.5f
+        }
+        val cursorOffset = (cursorMoveRange.second - cursorMoveRange.first) * progress + cursorMoveRange.first
+        updateCursorOffset(cursorOffset)
+        invalidate()
+    }
+
+    private fun onProgressChange() {
         //计算当前的倍率
+        val progress = cursorProgress
         val scale = if (progress >= 0.5) {
             scaleValues[2].value + (scaleValues[1].value - scaleValues[2].value) * (1 - (progress - 0.5) / 0.5)
         } else {
